@@ -1,0 +1,128 @@
+name: Custom.Server.Monitor.IRIS.Asset.Create
+description: |
+   Create an IRIS asset when clients get a system type label and a second one.  Adds the hostname, the domain, last IP address as properties and the ClientId as well as all existing labels as tags. Afterwards, the IRIS tag is added on Velo. As long as the IRIS tag is in place, the asset won't be readded.
+  
+   Learn more about IRIS, here: https://dfir-iris.org/
+  
+   It is recommended to use the Server Metadata section to store credentials, instead of having to store directly inside the artifact.
+   This artifact utilized some parts of Wes Lamberts Server.Monitor.IRIS.Case.Create artifact.
+
+type: SERVER_EVENT
+
+author: Stephan Mikiss - @StephMikiss
+
+parameters:
+  - name: IrisURL
+    default:
+  - name: IrisKey
+    type: string
+    description: API key for DFIR-IRIS. Leave blank here if using server metadata store.
+    default:
+  - name: DisableSSLVerify
+    type: bool
+    default: true
+  - name: IrisCaseId
+    default: 1
+    type: int
+    
+sources:
+  - query: |
+      LET URL <= if(
+            condition=IrisURL,
+            then=IrisURL,
+            else=server_metadata().IrisURL)
+      LET Creds = if(
+           condition=IrisKey,
+           then=IrisKey,
+           else=server_metadata().IrisKey)
+      LET CaseID <= if(
+           condition=IrisCaseId,
+           then=IrisCaseId,
+           else=server_metadata().IrisCaseId)
+    
+      LET assets = SELECT *,label(client_id=client_id,labels="IRIS",op="set") FROM diff(key="LabelList", period=1, query={
+        SELECT client_id,os_info.hostname as Hostname,join(array=slice(list=split(sep_string=".",string=os_info.fqdn),start=1,end=-1),sep=".") as Domain,split(sep_string=":",string=last_ip)[0] as IP,join(array=labels,sep=",") as LabelList, len(list=labels) FROM clients()
+        })
+        WHERE Diff = "added" AND LabelList =~ "(Workstation|Server|Domain Controller|Linux),.+" AND NOT LabelList =~ "IRIS"
+      
+      LET matches = SELECT * FROM switch(
+        a={SELECT client_id,os_info.hostname as Hostname,join(array=slice(list=split(sep_string=".",string=os_info.fqdn),start=1,end=-1),sep=".") as Domain,split(sep_string=":",string=last_ip)[0] as IP,join(array=labels,sep=",") as LabelList, {SELECT * FROM http_client(
+            data=serialize(
+                item=dict(
+                    asset_name=Hostname, 
+                    asset_type_id=9, 
+                    analysis_status_id=1,
+                    cid=CaseID, 
+                    asset_compromised=null,
+                    asset_domain=Domain,
+                    asset_ip=IP,
+                    asset_tags=format(format="%v,%v",args=[LabelList, client_id])
+                )
+                ,format="json"
+            ),
+            headers=dict(`Content-Type`="application/json", `Authorization`=format(format="Bearer %v", args=[Creds])),
+            disable_ssl_security=DisableSSLVerify,
+            method="POST",
+            url=format(format="%v/case/assets/add", args=[URL]))
+            } FROM clients() WHERE LabelList =~ "Workstation"},
+        b={SELECT client_id,os_info.hostname as Hostname,join(array=slice(list=split(sep_string=".",string=os_info.fqdn),start=1,end=-1),sep=".") as Domain,split(sep_string=":",string=last_ip)[0] as IP,join(array=labels,sep=",") as LabelList, {SELECT * FROM http_client(
+            data=serialize(
+                item=dict(
+                    asset_name=Hostname, 
+                    asset_type_id=10, 
+                    analysis_status_id=1,
+                    cid=CaseID, 
+                    asset_compromised=null,
+                    asset_domain=Domain,
+                    asset_ip=IP,
+                    asset_tags=format(format="%v,%v",args=[LabelList, client_id])
+                )
+                ,format="json"
+            ),
+            headers=dict(`Content-Type`="application/json", `Authorization`=format(format="Bearer %v", args=[Creds])),
+            disable_ssl_security=DisableSSLVerify,
+            method="POST",
+            url=format(format="%v/case/assets/add", args=[URL]))
+            } FROM clients() WHERE LabelList =~ "Server"},
+        c={SELECT client_id,os_info.hostname as Hostname,join(array=slice(list=split(sep_string=".",string=os_info.fqdn),start=1,end=-1),sep=".") as Domain,split(sep_string=":",string=last_ip)[0] as IP,join(array=labels,sep=",") as LabelList, {SELECT * FROM http_client(
+            data=serialize(
+                item=dict(
+                    asset_name=Hostname, 
+                    asset_type_id=11, 
+                    analysis_status_id=1,
+                    cid=CaseID, 
+                    asset_compromised=null,
+                    asset_domain=Domain,
+                    asset_ip=IP,
+                    asset_tags=format(format="%v,%v",args=[LabelList, client_id])
+                )
+                ,format="json"
+            ),
+            headers=dict(`Content-Type`="application/json", `Authorization`=format(format="Bearer %v", args=[Creds])),
+            disable_ssl_security=DisableSSLVerify,
+            method="POST",
+            url=format(format="%v/case/assets/add", args=[URL]))
+            } FROM clients() WHERE LabelList =~ "Domain Controller"},
+        d={SELECT client_id,os_info.hostname as Hostname,join(array=slice(list=split(sep_string=".",string=os_info.fqdn),start=1,end=-1),sep=".") as Domain,split(sep_string=":",string=last_ip)[0] as IP,join(array=labels,sep=",") as LabelList, {SELECT * FROM http_client(
+            data=serialize(
+                item=dict(
+                    asset_name=Hostname, 
+                    asset_type_id=3, 
+                    analysis_status_id=1,
+                    cid=CaseID, 
+                    asset_compromised=null,
+                    asset_domain=Domain,
+                    asset_ip=IP,
+                    asset_tags=format(format="%v,%v",args=[LabelList, client_id])
+                )
+                ,format="json"
+            ),
+            headers=dict(`Content-Type`="application/json", `Authorization`=format(format="Bearer %v", args=[Creds])),
+            disable_ssl_security=DisableSSLVerify,
+            method="POST",
+            url=format(format="%v/case/assets/add", args=[URL]))
+            } FROM clients() WHERE LabelList =~ "Linux"}
+      )
+      
+      SELECT * FROM foreach(row=assets, query=matches)
+
