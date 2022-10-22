@@ -1,4 +1,4 @@
-name: Custom.Server.Monitor.AutomateClientLabels
+name: Custom.Server.Monitor.Autolabeling.Clients
 author: Stephan Mikiss @StephMikiss
 description: |
     This server side event monitoring artifact watches for new client enrollments and automatically labels them according to their domain roles.
